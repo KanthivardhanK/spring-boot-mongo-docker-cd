@@ -1,0 +1,89 @@
+pipeline {
+    agent any
+
+    environment {
+        GIT_REPO        = 'https://github.com/kkdevopsb9/spring-boot-mongo-docker-kkfunda-cd.git'
+        GIT_BRANCH      = 'main'
+
+        AWS_REGION      = 'ap-south-1'
+        EKS_CLUSTER     = 'my-cluster-1'
+        AWS_CREDENTIALS = 'aws-eks-cred'
+
+        K8S_MANIFEST    = 'springBootMongo.yml'
+    }
+
+    stages {
+
+        stage('Checkout Source Code') {
+            steps {
+                git branch: "${GIT_BRANCH}",
+                    url: "${GIT_REPO}"
+            }
+        }
+
+        stage('Configure EKS Access') {
+            steps {
+                withCredentials([
+                    [$class: 'AmazonWebServicesCredentialsBinding',
+                     credentialsId: "${AWS_CREDENTIALS}"]
+                ]) {
+                    sh """
+                        aws eks update-kubeconfig \
+                            --region ${AWS_REGION} \
+                            --name ${EKS_CLUSTER}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy Application') {
+            steps {
+                withCredentials([
+                    [$class: 'AmazonWebServicesCredentialsBinding',
+                     credentialsId: "${AWS_CREDENTIALS}"]
+                ]) {
+                    sh """
+                        kubectl apply -f ${K8S_MANIFEST} --validate=false
+                    """
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                withCredentials([
+                    [$class: 'AmazonWebServicesCredentialsBinding',
+                     credentialsId: "${AWS_CREDENTIALS}"]
+                ]) {
+                    sh """
+                        echo "========== Pods =========="
+                        kubectl get pods -o wide
+
+                        echo "========== Services =========="
+                        kubectl get svc
+
+                        echo "========== Deployments =========="
+                        kubectl get deployments
+
+                        echo "========== Nodes =========="
+                        kubectl get nodes
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "Pipeline execution completed."
+        }
+
+        success {
+            echo "Application deployed successfully to EKS."
+        }
+
+        failure {
+            echo "Deployment failed. Please check the Jenkins logs."
+        }
+    }
+}
